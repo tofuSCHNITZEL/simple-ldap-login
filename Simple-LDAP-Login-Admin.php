@@ -61,7 +61,8 @@ if (isset($_GET['tab'])) {
                         <th scope="row" valign="top">LDAP Directory</th>
                         <td>
                             <label><input type="radio" name="<?php echo esc_attr($this->get_field_name('directory')); ?>" value="ad" <?php if ($this->get_setting('directory') == "ad") echo "checked='checked'"; ?> /> Active Directory</label><br/>
-                            <label><input type="radio" name="<?php echo esc_attr($this->get_field_name('directory')); ?>" value="ol" <?php if ($this->get_setting('directory') == "ol") echo "checked='checked'"; ?> /> Open LDAP (and etc)</label>
+                            <label><input type="radio" name="<?php echo esc_attr($this->get_field_name('directory')); ?>" value="ol" <?php if ($this->get_setting('directory') == "ol") echo "checked='checked'"; ?> /> Open LDAP (and etc)</label><br />
+                            <label><input type="radio" name="<?php echo esc_attr($this->get_field_name('directory')); ?>" value="zm" <?php if ($this->get_setting('directory') == "zm") echo "checked='checked'"; ?> /> Zimbra (kind of Open LDAP)</label>
                         </td>
                     </tr>
                 </tbody>

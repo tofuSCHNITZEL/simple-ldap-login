@@ -3,7 +3,7 @@
   Plugin Name: Simple LDAP Login
   Plugin URI: http://clifgriffin.com/simple-ldap-login/
   Description:  Authenticate WordPress against LDAP.
-  Version: 1.8.0
+  Version: 1.8.1
   Author: Clif Griffin Development Inc.
   Author URI: http://cgd.io
  */
@@ -375,6 +375,9 @@ class SimpleLDAPLogin {
         }
 
         // Sweet, let's try to authenticate our user and pass against LDAP
+        if(trim($this->get_setting('directory')) == "zm"){ //FOR ZIMBRA REMOVE email part from username
+            $username = str_replace(trim($this->get_setting('account_suffix')), "", $username);
+        }
         $auth_result = $this->ldap_auth($username, $password, trim($this->get_setting('directory')), $sso_auth);
 
         if ($auth_result) {
@@ -456,34 +459,61 @@ class SimpleLDAPLogin {
 
     function ldap_auth($username, $password, $directory, $sso_auth) {
         $result = false;
-
-        if ($directory == "ad") {
-            $result = $this->adldap->authenticate($this->get_domain_username($username), $password, FALSE, $sso_auth);
-        } elseif ($directory == "ol") {
-            // TODO - implement SSO to others directories 
-            $this->ldap = ldap_connect(join(' ', (array) $this->get_setting('domain_controllers')), (int) $this->get_setting('ldap_port'));
-            ldap_set_option($this->ldap, LDAP_OPT_PROTOCOL_VERSION, (int) $this->get_setting('ldap_version'));
-            if (str_true($this->get_setting('use_tls'))) {
-                ldap_start_tls($this->ldap);
-            }
-            // TODO - username should be DN escaped - rfc4514
-            $dn = trim($this->get_setting('ol_login')) . '=' . $username . ',' . trim($this->get_setting('base_dn'));
-            if (str_true($this->get_setting('search_sub_ous'))) {
-                // search for user's DN in the base DN and below
-                $filter = sprintf('(%s=%s)', trim($this->get_setting('ol_login')), $this->esc_ldap_filter_val($username));
-                $sr = @ldap_search($this->ldap, $this->get_setting('base_dn'), $filter, array('cn'));
-                if ($sr !== FALSE) {
-                    $info = @ldap_get_entries($this->ldap, $sr);
-                    if ($info !== FALSE && $info['count'] > 0) {
-                        $dn = $info[0]['dn'];
+        switch ($directory){
+            case "ad":
+                $result = $this->adldap->authenticate($this->get_domain_username($username), $password, FALSE, $sso_auth);
+                break;
+            case "ol":
+                // TODO - implement SSO to others directories 
+                $this->ldap = ldap_connect(join(' ', (array) $this->get_setting('domain_controllers')), (int) $this->get_setting('ldap_port'));
+                ldap_set_option($this->ldap, LDAP_OPT_PROTOCOL_VERSION, (int) $this->get_setting('ldap_version'));
+                if (str_true($this->get_setting('use_tls'))) {
+                    ldap_start_tls($this->ldap);
+                }
+                // TODO - username should be DN escaped - rfc4514
+                $dn = trim($this->get_setting('ol_login')) . '=' . $username . ',' . trim($this->get_setting('base_dn'));
+                if (str_true($this->get_setting('search_sub_ous'))) {
+                    // search for user's DN in the base DN and below
+                    $filter = sprintf('(%s=%s)', trim($this->get_setting('ol_login')), $this->esc_ldap_filter_val($username));                
+                    $sr = @ldap_search($this->ldap, $this->get_setting('base_dn'), $filter, array('cn'));
+                    if ($sr !== FALSE) {
+                        $info = @ldap_get_entries($this->ldap, $sr);
+                        if ($info !== FALSE && $info['count'] > 0) {
+                            $dn = $info[0]['dn'];
+                        }
                     }
                 }
-            }
-            $ldapbind = @ldap_bind($this->ldap, $dn, $password);
-            $this->dn = $dn;
-            $result = $ldapbind;
+                $ldapbind = @ldap_bind($this->ldap, $dn, $password);
+                $this->dn = $dn;
+                $result = $ldapbind;
+                break;
+            case "zm":
+                $this->ldap = ldap_connect(join(' ', (array) $this->get_setting('domain_controllers')), (int) $this->get_setting('ldap_port'));
+                ldap_set_option($this->ldap, LDAP_OPT_PROTOCOL_VERSION, (int) $this->get_setting('ldap_version'));
+                if (str_true($this->get_setting('use_tls'))) {
+                    ldap_start_tls($this->ldap);
+                }
+                // TODO - username should be DN escaped - rfc4514
+                $dn = trim($this->get_setting('ol_login')) . '=' . $username . ',' . trim($this->get_setting('base_dn'));
+                if (str_true($this->get_setting('search_sub_ous'))) {
+                    if($this->is_sso_enabled()){
+                        ldap_bind($this->ldap, $this->get_setting('sso_search_user'), $this->get_sso_search_user_pass());
+                    }
+                    // search for user's DN in the base DN and below
+                    $filter = sprintf('(%s=%s)', trim($this->get_setting('ol_login')), $this->esc_ldap_filter_val($username)); 
+                    $sr = @ldap_search($this->ldap, $this->get_setting('base_dn'), $filter, array('cn'));
+                    if ($sr !== FALSE) {
+                        $info = @ldap_get_entries($this->ldap, $sr);
+                        if ($info !== FALSE && $info['count'] > 0) {
+                            $dn = $info[0]['dn'];
+                        }
+                    }
+                }
+                $ldapbind = @ldap_bind($this->ldap, $dn, $password);
+                $this->dn = $dn;
+                $result = $ldapbind;
+                break;
         }
-
         return apply_filters($this->prefix . 'ldap_auth', $result);
     }
 
@@ -511,34 +541,60 @@ class SimpleLDAPLogin {
         if (count($groups) == 0) {
             return true;
         }
-
-        if ($directory == "ad") {
-            foreach ($groups as $gp) {
-                if ($this->adldap->user_ingroup($username, $gp)) {
-                    $result = true;
-                    break;
+        
+        switch ($directory){
+            case "ad":
+                foreach ($groups as $gp) {
+                    if ($this->adldap->user_ingroup($username, $gp)) {
+                        $result = true;
+                        break;
+                    }
                 }
-            }
-        } elseif ($directory == "ol") {
-            if ($this->ldap === false)
-                return false;
+                break;
+            case "ol":
+                if ($this->ldap === false)
+                    return false;
 
-            $group_base_dn = $this->get_setting('group_base_dn') !== false ? trim($this->get_setting('group_base_dn')) : trim($this->get_setting('base_dn'));
-            $ol_filter = sprintf('(|(&(objectClass=groupOfUniqueNames)(uniquemember=%s))(&(objectClass=groupOfNames)(member=%s))(%s=%s))', $this->dn, $this->dn, trim($this->get_setting('group_uid')), $this->esc_ldap_filter_val($username));
-            $result = ldap_search($this->ldap, $group_base_dn, $ol_filter, array($this->get_setting('ol_group')));
-            $ldapgroups = ldap_get_entries($this->ldap, $result);
+                $group_base_dn = $this->get_setting('group_base_dn') !== false ? trim($this->get_setting('group_base_dn')) : trim($this->get_setting('base_dn'));
+                $ol_filter = sprintf('(|(&(objectClass=groupOfUniqueNames)(uniquemember=%s))(&(objectClass=groupOfNames)(member=%s))(%s=%s))', $this->dn, $this->dn, trim($this->get_setting('group_uid')), $this->esc_ldap_filter_val($username));
+                $result = ldap_search($this->ldap, $group_base_dn, $ol_filter, array($this->get_setting('ol_group')));
+                $ldapgroups = ldap_get_entries($this->ldap, $result);
 
 
-            // Ok, we should have the user, all the info, including which groups he is a member of.
-            // Let's make sure he's in the right group before proceeding.
-            $user_groups = array();
-            for ($i = 0; $i < $ldapgroups['count']; $i++) {
-                $user_groups[] = is_array($ldapgroups[$i][$this->get_setting('ol_group')]) ? $ldapgroups[$i][$this->get_setting('ol_group')][0] : $ldapgroups[$i][$this->get_setting('ol_group')];
-            }
+                // Ok, we should have the user, all the info, including which groups he is a member of.
+                // Let's make sure he's in the right group before proceeding.
+                $user_groups = array();
+                for ($i = 0; $i < $ldapgroups['count']; $i++) {
+                    $user_groups[] = is_array($ldapgroups[$i][$this->get_setting('ol_group')]) ? $ldapgroups[$i][$this->get_setting('ol_group')][0] : $ldapgroups[$i][$this->get_setting('ol_group')];
+                }
 
-            $result = (bool) (count(array_intersect($user_groups, $groups)) > 0);
+                $result = (bool) (count(array_intersect($user_groups, $groups)) > 0);
+                break;
+            case "zm":              
+                //with zimbra openldap there are no groups, only distribution lists, memberships is also not determined by the uid but with zimbraMailForwardingAddress (where everything before the @ should be the users uid)
+                //also membership can also be tested with "admin" priviliges - sso creds are used for this purpose
+                if ($this->ldap === false)
+                    return false; 
+                if($this->is_sso_enabled()){ //without the right so search ldap, there is no use to look for groups and memberships
+
+                    ldap_bind($this->ldap, $this->get_setting('sso_search_user'), $this->get_sso_search_user_pass());
+                    $group_base_dn = $this->get_setting('group_base_dn') !== false ? trim($this->get_setting('group_base_dn')) : trim($this->get_setting('base_dn'));
+                    $ol_filter = sprintf('(&(objectClass=zimbraDistributionList)(%s=%s))', $this->get_setting('ol_group'), $this->esc_ldap_filter_val($username)."@*"); //* to ignore the actual email adress
+                    $result = ldap_search($this->ldap, $group_base_dn, $ol_filter, array("uid"));
+                    $ldapgroups = ldap_get_entries($this->ldap, $result);
+                    
+                    $user_groups = array();
+                    for ($i = 0; $i < $ldapgroups['count']; $i++) {
+                        $user_groups[] = is_array($ldapgroups[$i]["uid"]) ? $ldapgroups[$i]["uid"][0] : $ldapgroups[$i]["uid"];
+                    }
+                    
+                    $result = (bool) (count(array_intersect($user_groups, $groups)) > 0);
+                }else{
+                    return false;
+                }
+                break;
         }
-
+        
         return apply_filters($this->prefix . 'user_has_groups', $result);
     }
 
@@ -554,42 +610,47 @@ class SimpleLDAPLogin {
             'user_url' => '',
             'role' => $this->get_setting('role')
         );
-
-        if ($directory == "ad") {
-            $userinfo = $this->adldap->user_info($username, array(
-                trim($this->get_setting('ol_login')),
-                trim($this->get_setting('user_last_name_attribute')),
-                trim($this->get_setting('user_first_name_attribute')),
-                trim($this->get_setting('user_email_attribute')),
-                trim($this->get_setting('user_url_attribute'))
-            ));
-            $userinfo = $userinfo[0];
-        } elseif ($directory == "ol") {
-            if ($this->ldap == null) {
-                return false;
-            }
-
-            $attributes = array(
-                trim($this->get_setting('ol_login')),
-                trim($this->get_setting('user_last_name_attribute')),
-                trim($this->get_setting('user_first_name_attribute')),
-                trim($this->get_setting('user_email_attribute')),
-                trim($this->get_setting('user_url_attribute'))
-            );
-
-            $ol_filter = sprintf('(%s=%s)', trim($this->get_setting('ol_login')), $this->esc_ldap_filter_val($username));
-            $result = ldap_search($this->ldap, $this->get_setting('base_dn'), $ol_filter, $attributes);
-            $userinfo = ldap_get_entries($this->ldap, $result);
-
-            if ($userinfo['count'] == 1) {
+        
+        switch ($directory){
+            case "ad":
+                $userinfo = $this->adldap->user_info($username, array(
+                    trim($this->get_setting('ol_login')),
+                    trim($this->get_setting('user_last_name_attribute')),
+                    trim($this->get_setting('user_first_name_attribute')),
+                    trim($this->get_setting('user_email_attribute')),
+                    trim($this->get_setting('user_url_attribute'))
+                ));
                 $userinfo = $userinfo[0];
-            }
-        } else {
-            return false;
+                break;
+            case "ol":
+            case "zm":
+                if ($this->ldap == null) {
+                    return false;
+                }
+
+                $attributes = array(
+                    trim($this->get_setting('ol_login')),
+                    trim($this->get_setting('user_last_name_attribute')),
+                    trim($this->get_setting('user_first_name_attribute')),
+                    trim($this->get_setting('user_email_attribute')),
+                    trim($this->get_setting('user_url_attribute'))
+                );
+
+                $ol_filter = sprintf('(%s=%s)', trim($this->get_setting('ol_login')), $this->esc_ldap_filter_val($username));
+                $result = ldap_search($this->ldap, $this->get_setting('base_dn'), $ol_filter, $attributes);
+                $userinfo = ldap_get_entries($this->ldap, $result);
+
+                if ($userinfo['count'] == 1) {
+                    $userinfo = $userinfo[0];
+                }
+                break;
+            default:
+                return false;
+            
         }
 
         if (is_array($userinfo)) {
-//            print_r($userinfo);
+            //print_r($userinfo);
             $user_data['user_nicename'] = strtolower($userinfo[trim($this->get_setting('ol_login'))][0]);
             $user_data['user_email'] = array_key_exists(trim($this->get_setting('user_email_attribute')), $userinfo) ? $userinfo[trim($this->get_setting('user_email_attribute'))][0] : "";
             $user_data['display_name'] = $userinfo[trim($this->get_setting('user_first_name_attribute'))][0] . ' ' . $userinfo[trim($this->get_setting('user_last_name_attribute'))][0];
@@ -703,12 +764,20 @@ class SimpleLDAPLogin {
 
     function sso_search_user_bind_test() {
         $directory = $this->get_setting('directory');
-        if ($directory == "ad") {
-            return $this->adldap->authenticate($this->get_domain_username($this->get_setting('sso_search_user')), $this->get_sso_search_user_pass());
-        } elseif ($directory == "ol") {
-            // TODO - Implement bind test to other directories
-        } else {
-            return FALSE;
+        switch ($directory){
+            case "ad":
+                return $this->adldap->authenticate($this->get_domain_username($this->get_setting('sso_search_user')), $this->get_sso_search_user_pass());
+                break;
+            case "ol":
+                return FALSE;
+                break;
+            case "zm":
+                $this->ldap = ldap_connect(join(' ', (array) $this->get_setting('domain_controllers')), (int) $this->get_setting('ldap_port'));
+                ldap_set_option($this->ldap, LDAP_OPT_PROTOCOL_VERSION, (int) $this->get_setting('ldap_version'));
+                return ldap_bind($this->ldap, $this->get_setting('sso_search_user'), $this->get_sso_search_user_pass());
+                break;
+            default:
+                return FALSE;
         }
     }
 
