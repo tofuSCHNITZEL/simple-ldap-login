@@ -121,7 +121,7 @@ class SimpleLDAPLogin {
         $this->add_setting('domain_controllers', array("dc01.mydomain.local"));
         $this->add_setting('directory', "ad");
         $this->add_setting('role', "contributor");
-        $this->add_setting('high_security', "true");
+        $this->add_setting('high_security', "false");
         $this->add_setting('ol_login', "uid");
         $this->add_setting('ol_group', "cn");
         $this->add_setting('use_tls', "false");
@@ -599,8 +599,9 @@ class SimpleLDAPLogin {
     }
 
     function get_user_data($username, $directory) {
+        
         $user_data = array(
-            'user_pass' => md5(microtime()),
+            'user_pass' => hash("sha512",microtime().bin2hex(openssl_random_pseudo_bytes(mt_rand(10,20)))),
             'user_login' => $username,
             'user_nicename' => '',
             'user_email' => '',
