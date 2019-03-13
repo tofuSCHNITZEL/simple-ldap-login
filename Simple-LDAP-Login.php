@@ -641,7 +641,7 @@ class SimpleLDAPLogin {
                 $result = ldap_search($this->ldap, $this->get_setting('base_dn'), $ol_filter, $attributes);
                 $userinfo = ldap_get_entries($this->ldap, $result);
 
-                if ($userinfo['count'] == 1) {
+                if ($userinfo['count'] >= 1) {
                     $userinfo = $userinfo[0];
                 }
                 break;
@@ -651,13 +651,19 @@ class SimpleLDAPLogin {
         }
 
         if (is_array($userinfo)) {
-            //print_r($userinfo);
             $user_data['user_nicename'] = strtolower($userinfo[trim($this->get_setting('ol_login'))][0]);
             $user_data['user_email'] = array_key_exists(trim($this->get_setting('user_email_attribute')), $userinfo) ? $userinfo[trim($this->get_setting('user_email_attribute'))][0] : "";
             $user_data['display_name'] = $userinfo[trim($this->get_setting('user_first_name_attribute'))][0] . ' ' . $userinfo[trim($this->get_setting('user_last_name_attribute'))][0];
             $user_data['first_name'] = $userinfo[trim($this->get_setting('user_first_name_attribute'))][0];
             $user_data['last_name'] = $userinfo[trim($this->get_setting('user_last_name_attribute'))][0];
             $user_data['user_url'] = array_key_exists(trim($this->get_setting('user_url_attribute')), $userinfo) ? $userinfo[trim($this->get_setting('user_url_attribute'))][0] : "";
+        }
+
+        switch ($directory){
+            case "zm":
+                //build main email from username and account suffix
+                $user_data['user_email'] = $username.trim($this->get_setting('account_suffix'));
+                break;
         }
 
         return apply_filters($this->prefix . 'user_data', $user_data);
